@@ -39,6 +39,7 @@ SERVICES = {
 }
 # weekday(): Mon=0 ... Sun=6 -> (open_minute, close_minute)
 HOURS = {0: (540, 1020), 1: (540, 1020), 2: (540, 1020), 3: (540, 1020), 4: (540, 1020), 5: (540, 780)}
+MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 
 lock = threading.Lock()
@@ -71,12 +72,27 @@ def parse_date(text):
     if s in DAYS:
         delta = (DAYS.index(s) - today.weekday()) % 7
         return today + timedelta(days=delta or 7)
-    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})$", s)
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})", s)
     if m:
         try:
             return datetime(int(m[1]), int(m[2]), int(m[3])).date()
         except ValueError:
             return None
+    # free text: "Wednesday 23 September 2026", "23rd september", "september 23"
+    s2 = re.sub(r"\b(" + "|".join(DAYS) + r")\b,?", " ", s)
+    s2 = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", s2).replace(",", " ")
+    month = next((MONTHS[w[:3]] for w in s2.split() if w[:3] in MONTHS and w.isalpha()), None)
+    nums = [int(w) for w in s2.split() if w.isdigit()]
+    day = next((n for n in nums if 1 <= n <= 31), None)
+    year = next((n for n in nums if n >= 1000), today.year)
+    if month and day:
+        try:
+            d = datetime(year, month, day).date()
+        except ValueError:
+            return None
+        if d < today and not any(n >= 1000 for n in nums):
+            d = datetime(year + 1, month, day).date()
+        return d
     return None
 
 
@@ -192,8 +208,19 @@ def book_appointment(a):
     t = parse_time(a.get("time"))
     name = (a.get("name") or "").strip()
     phone = re.sub(r"\D", "", a.get("phone") or "")
-    if not (d and key and t is not None and name and len(phone) >= 7):
-        return {"confirmed": False, "message": "Missing or unclear details. Need name, phone (at least 7 digits), service, date and time."}
+    problems = []
+    if not name or name.lower() in ("john doe", "jane doe", "unknown", "caller"):
+        problems.append("the caller's real full name (ask them, do not guess)")
+    if len(phone) < 10:
+        problems.append("the caller's phone number with at least 10 digits (ask them, do not guess)")
+    if not key:
+        problems.append("a valid service (cleaning, checkup, filling or whitening)")
+    if not d:
+        problems.append("a valid date")
+    if t is None:
+        problems.append("a valid time like 10:30 AM")
+    if problems:
+        return {"confirmed": False, "message": "Cannot book yet. Still needed: " + "; ".join(problems) + ". Ask the caller for it."}
     if t not in free_slots(d, key):
         alts = [fmt_time(s) for s in free_slots(d, key)[:3]]
         return {"confirmed": False, "message": "That time is not available. Offer these instead: " + (", ".join(alts) or "another day") + "."}
