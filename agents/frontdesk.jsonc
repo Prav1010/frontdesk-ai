@@ -60,11 +60,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Caller's full name."
+            "description": "The caller's real full name, exactly as they said it."
           },
           "phone": {
             "type": "string",
-            "description": "Caller's phone number, digits only."
+            "description": "The caller's 10-digit mobile phone number, spoken by the caller digit by digit, possibly in several chunks. Wait until the caller has finished saying the whole number before calling this tool. Never use a placeholder."
           },
           "service": {
             "type": "string",
